@@ -1,0 +1,33 @@
+# виртуальные окружения
+.venv/
+venv/
+
+# артефакты Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.dist/
+.build/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# IDE / редакторы
+.vscode/
+.idea/
+*.code-workspace
+
+# ОС
+.DS_Store
+Thumbs.db
+
+# логи, кэш
+*.log
+
+# результаты обработки (если не нужно хранить)
+*_result.*
+edges_*.*
+corners_*.*
+circles_*.*

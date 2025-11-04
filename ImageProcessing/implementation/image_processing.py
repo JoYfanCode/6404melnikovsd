@@ -1,375 +1,358 @@
 """
+Модуль image_processing.py
+
 Реализация интерфейса IImageProcessing с использованием библиотеки OpenCV.
 
-Предоставляет методы для обработки изображений: свёртка, преобразование в
-оттенки серого, гамма-коррекция, а также обнаружение границ, углов и
-окружностей.
-
-Методы:
-- _convolution(image, kernel): свёртка изображения с ядром
-- _rgb_to_grayscale(image): преобразование RGB в оттенки серого
-- _gamma_correction(image, gamma): гамма-коррекция
-- edge_detection(image): обнаружение границ (Собель + порог)
-- corner_detection(image): обнаружение углов (Харрис)
-- circle_detection(image): обнаружение окружностей (параметрическое Хафа)
+Содержит класс ImageProcessing, предоставляющий методы для обработки изображений:
+- свёртка изображения с ядром
+- преобразование RGB-изображения в оттенки серого
+- гамма-коррекция
+- обнаружение границ (оператор Кэнни)
+- обнаружение углов (алгоритм Харриса)
+- обнаружение окружностей
 """
+import time
+import cv2
 import interfaces
-
 import numpy as np
 
 
 class ImageProcessing(interfaces.IImageProcessing):
-    """Реализация абстрактного интерфейса обработки изображений."""
-    def _convolution(
-        self: "ImageProcessing",
-        image: np.ndarray,
-        kernel: np.ndarray,
-    ) -> np.ndarray:
+    """
+    Реализация интерфейса IImageProcessing с использованием библиотеки OpenCV.
+
+    Предоставляет методы для обработки изображений, включая свёртку, преобразование
+    в оттенки серого, гамма-коррекцию, а также обнаружение границ, углов и окружностей.
+    """
+
+    def _convolution(self, image: np.ndarray, kernel: np.ndarray):
         """
         Выполняет свёртку изображения с заданным ядром.
 
-        Реализована собственная свёртка с нулевым дополнением (zero padding).
-
         Args:
-            image (np.ndarray): Входное изображение (цветное или чёрно-белое).
+            image (np.ndarray): Входное изображение (может быть цветным или чёрно-белым).
             kernel (np.ndarray): Ядро свёртки (матрица).
 
         Returns:
-            np.ndarray: Изображение после применения свёртки.
+            image (result_image)
         """
-
-        if image.ndim == 2:
-            image_channels = 1
-            image_expanded = image[..., None]
+        start_time = time.time()
+        # Извлекаем размеры изображения и ядра
+        image_height, image_width = image.shape[:2]
+        kernel_height, kernel_width = kernel.shape
+        # Вычисляем паддинги по высоте и ширине, чтобы результат совпадал по размеру
+        pad_height = kernel_height // 2
+        pad_width = kernel_width // 2
+        # Делаем отражённое/нулевое дополнение краёв изображения под свёртку
+        if len(image.shape) == 3:
+            padded_image = np.pad(
+                image,
+                ((pad_height, pad_height), (pad_width, pad_width), (0, 0)),
+                mode='constant',
+            )
         else:
-            image_channels = image.shape[2]
-            image_expanded = image
+            padded_image = np.pad(
+                image,
+                ((pad_height, pad_height), (pad_width, pad_width)),
+                mode='constant',
+            )
+        # Подготавливаем выходной массив с плавающей точкой для аккумулирования суммы
+        output = np.zeros_like(image, dtype=np.float32)
+        # Проходим по каждому пикселю и применяем ядро свёртки
+        for i in range(image_height):
+            for j in range(image_width):
+                if len(image.shape) == 3:
+                    for channel in range(3):
+                        region = padded_image[
+                            i:i + kernel_height,
+                            j:j + kernel_width,
+                            channel
+                        ]
+                        output[i, j, channel] = np.sum(region * kernel)
+                else:
+                    region = padded_image[
+                        i:i + kernel_height,
+                        j:j + kernel_width
+                    ]
+                    output[i, j] = np.sum(region * kernel)
+        # Обрезаем значения в допустимый диапазон [0, 255] и приводим к uint8
+        output = np.clip(output, 0, 255).astype(np.uint8)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"Свёртка выполнена за {execution_time:.4f} секунд")
+        return output
 
-        kh, kw = kernel.shape
-        pad_h = kh // 2
-        pad_w = kw // 2
-        kernel_flipped = np.flipud(np.fliplr(kernel))
-
-        padded = np.pad(
-            image_expanded,
-            ((pad_h, pad_h), (pad_w, pad_w), (0, 0)),
-            mode="constant",
+    def _rgb_to_grayscale(self, image: np.ndarray):
+        start_time = time.time()
+        # Линейная комбинация каналов RGB в соответствии с яркостной моделью
+        grayscale = np.dot(image[..., :3], [0.299, 0.587, 0.114]).astype(np.float32)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(
+            f"Преобразование в grayscale выполнено за {execution_time:.4f} секунд"
         )
+        return grayscale
 
-        out = np.zeros_like(image_expanded, dtype=np.float64)
-        for row_index in range(out.shape[0]):
-            row_slice = slice(row_index, row_index + kh)
-            for col_index in range(out.shape[1]):
-                col_slice = slice(col_index, col_index + kw)
-                window = padded[row_slice, col_slice, :]
-                out[row_index, col_index, :] = np.tensordot(
-                    window,
-                    kernel_flipped,
-                    axes=([0, 1], [0, 1]),
-                )
-
-        if np.issubdtype(image.dtype, np.integer):
-            out = np.clip(out, 0, 255)
-            out = out.astype(image.dtype)
-        else:
-            out = out.astype(image.dtype)
-
-        return out[..., 0] if image_channels == 1 else out
-
-    def _rgb_to_grayscale(
-        self: "ImageProcessing",
-        image: np.ndarray,
-    ) -> np.ndarray:
-        """
-        Преобразует RGB-изображение в оттенки серого.
-
-        Реализовано вручную как взвешенная сумма каналов. Если изображение
-        прочитано через OpenCV (BGR), используются коэффициенты в порядке
-        B,G,R.
-
-        Args:
-            image (np.ndarray): Входное RGB-изображение.
-
-        Returns:
-            np.ndarray: Одноканальное изображение в оттенках серого.
-        """
-
-        if image.ndim == 2:
-            return image
-
-        blue_channel = image[..., 0].astype(np.float32)
-        green_channel = image[..., 1].astype(np.float32)
-        red_channel = image[..., 2].astype(np.float32)
-        gray = (
-            0.114 * blue_channel
-            + 0.587 * green_channel
-            + 0.299 * red_channel
-        )
-        gray = np.clip(gray, 0, 255)
-        return gray.astype(image.dtype)
-
-    def _gamma_correction(
-        self: "ImageProcessing",
-        image: np.ndarray,
-        gamma: float,
-    ) -> np.ndarray:
+    def _gamma_correction(self, image: np.ndarray, gamma: float = 1.0):
         """
         Применяет гамма-коррекцию к изображению.
-
-        Реализовано вручную через степенное преобразование значений пикселей.
 
         Args:
             image (np.ndarray): Входное изображение.
             gamma (float): Коэффициент гамма-коррекции (>0).
 
         Returns:
-            np.ndarray: Изображение после гамма-коррекции.
+            image (corrected_image)
         """
-        if gamma <= 0:
-            raise ValueError("gamma должен быть > 0")
+        start_time = time.time()
+        # Нормализация в диапазон [0,1]
+        normalized_image = image.astype(np.float32) / 255.0
+        # Применение степени gamma
+        corrected_image = np.power(normalized_image, gamma)
+        # Обратное масштабирование в [0,255] и приведение типа
+        result = (corrected_image * 255).astype(np.uint8)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"Гамма-коррекция выполнена за {execution_time:.4f} секунд")
+        return result
 
-        image_float = image.astype(np.float32) / 255.0
-        corrected = np.power(image_float, gamma)
-        corrected = np.clip(corrected * 255.0, 0, 255)
-        return corrected.astype(image.dtype)
+    def sobel_operator(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Применяет оператор Собеля для вычисления градиентов.
 
-    def edge_detection(
-        self: "ImageProcessing",
-        image: np.ndarray,
-    ) -> np.ndarray:
+        Args:
+            image (np.ndarray): Входное изображение.
+
+        Returns:
+            tuple: (gradient_x, gradient_y)
+        """
+        # Ядро Собеля по X
+        sobel_x = np.array([[-1, 0, 1],
+                            [-2, 0, 2],
+                            [-1, 0, 1]])
+        # Ядро Собеля по Y
+        sobel_y = np.array([[-1, -2, -1],
+                            [0, 0, 0],
+                            [1, 2, 1]])
+        # Применяем свёртку для получения градиентов по X и Y
+        gradient_x = self._convolution(image, sobel_x)
+        gradient_y = self._convolution(image, sobel_y)
+        return gradient_x, gradient_y
+
+    def simple_blur(self, img: np.ndarray) -> np.ndarray:
+        # Простое усредняющее ядро 3x3
+        blur_kernel = np.array(
+            [
+                [1 / 9, 1 / 9, 1 / 9],
+                [1 / 9, 1 / 9, 1 / 9],
+                [1 / 9, 1 / 9, 1 / 9],
+            ]
+        )
+        # Свёртка с усредняющим ядром
+        result = self._convolution(img, blur_kernel)
+        return result
+
+    def edge_detection(self, image: np.ndarray):
         """
         Выполняет обнаружение границ на изображении.
 
-        Детектирование границ с помощью операторов Собеля по X и Y и порог по
-        величине градиента.
-
         Args:
             image (np.ndarray): Входное изображение (RGB).
 
         Returns:
-            np.ndarray: Одноканальное изображение с выделенными границами.
+            image (edges_image)
         """
-        gray = self._rgb_to_grayscale(image).astype(np.float32)
-
-        sobel_x = np.array([
-            [-1, 0, 1],
-            [-2, 0, 2],
-            [-1, 0, 1],
-        ], dtype=np.float32)
-
-        sobel_y = np.array([
-            [-1, -2, -1],
-            [0, 0, 0],
-            [1, 2, 1],
-        ], dtype=np.float32)
-
-        grad_x = self._convolution(gray, sobel_x).astype(np.float32)
-        grad_y = self._convolution(gray, sobel_y).astype(np.float32)
-        mag = np.hypot(grad_x, grad_y)
-        mag = (mag / (mag.max() + 1e-8)) * 255.0
-
-        thresh = 0.3 * 255.0
-        edges = (mag >= thresh).astype(np.uint8) * 255
+        # Преобразование в оттенки серого
+        gray = self._rgb_to_grayscale(image)
+        # Вычисление градиентов по осям с помощью оператора Собеля
+        gradient_x, gradient_y = self.sobel_operator(gray)
+        # Подсчёт магнитуды градиента
+        gradient_magnitude = np.sqrt(
+            gradient_x.astype(np.float32) ** 2
+            + gradient_y.astype(np.float32) ** 2
+        )
+        # Нормализация магнитуды к диапазону [0,255]
+        gradient_magnitude = (
+            gradient_magnitude / gradient_magnitude.max() * 255
+        ).astype(np.uint8)
+        # Пороговая обработка для выделения границ
+        edges = np.where(gradient_magnitude > 50, 255, 0).astype(np.uint8)
         return edges
 
-    def corner_detection(
-        self: "ImageProcessing",
-        image: np.ndarray,
-    ) -> np.ndarray:
+    def corner_detection(self, image: np.ndarray):
         """
-        Выполняет обнаружение углов на изображении по Харрису.
-
-        Этапы: градиенты по X и Y (Собель), бокс-суммирование, отклик
-        R = det(M) - k*(trace(M)**2), немаксимальное подавление и порог.
-
-        Args:
-            image (np.ndarray): Входное изображение (RGB).
-
-        Returns:
-            np.ndarray: Изображение с выделенными углами (белые точки).
+        Выполняет обнаружение углов на изображении.
         """
-
-        gray = self._rgb_to_grayscale(image).astype(np.float32)
-        sobel_x = np.array([
-            [-1, 0, 1],
-            [-2, 0, 2],
-            [-1, 0, 1],
-        ], dtype=np.float32)
-
-        sobel_y = np.array([
-            [-1, -2, -1],
-            [0, 0, 0],
-            [1, 2, 1],
-        ], dtype=np.float32)
-
-        grad_x = self._convolution(gray, sobel_x).astype(np.float32)
-        grad_y = self._convolution(gray, sobel_y).astype(np.float32)
-
-        ixx = grad_x * grad_x
-        iyy = grad_y * grad_y
-        ixy = grad_x * grad_y
-
-        box3 = np.ones((3, 3), dtype=np.float32) / 9.0
-        sxx = self._convolution(ixx, box3)
-        syy = self._convolution(iyy, box3)
-        sxy = self._convolution(ixy, box3)
-
-        harris_k = 0.04
-        det = sxx * syy - sxy * sxy
-        trace = sxx + syy
-        r_response = det - harris_k * (trace ** 2)
-
-        r_norm = r_response - r_response.min()
-        if r_norm.max() > 0:
-            r_norm = r_norm / r_norm.max()
-
-        # Порог, чтобы не заливать всё изображение
-        thresh = 0.1
-
-        # Подавление немаксимумов в окне 3x3
-        height, width = r_norm.shape
-        nms = np.zeros_like(r_norm, dtype=bool)
-        for row_index in range(1, height - 1):
-            for col_index in range(1, width - 1):
-                center = r_norm[row_index, col_index]
-                if center < thresh:
-                    continue
-
-                r0 = row_index - 1
-                r1 = row_index + 2
-                c0 = col_index - 1
-                c1 = col_index + 2
-                local = r_norm[r0:r1, c0:c1]
-                if (
-                    center == local.max()
-                    and np.count_nonzero(local == center) == 1
-                ):
-                    nms[row_index, col_index] = True
-
-        img_height, img_width = gray.shape
-        out = np.zeros((img_height, img_width, 3), dtype=image.dtype)
-
-        out[nms] = [255, 255, 255]
-        return out
-
-    def circle_detection(
-        self: "ImageProcessing",
-        image: np.ndarray,
-    ) -> np.ndarray:
-        """
-        Выполняет обнаружение окружностей (параметрическое Хафа).
-
-        Args:
-            image (np.ndarray): Входное изображение (RGB).
-
-        Returns:
-            np.ndarray: Изображение с выделенными окружностями.
-        """
-
-        # 1) Подготовка: градации серого и границы
-        gray = self._rgb_to_grayscale(image).astype(np.float32)
-        edges = self.edge_detection(image)
-        edge_points = np.argwhere(edges > 0)
-
-        height, width = gray.shape
-
-        # 2) Параметры Хафа
-        min_radius = max(10, min(height, width) // 20)
-        max_radius = max(min(height, width) // 4, min_radius + 1)
-        radii = np.arange(min_radius, max_radius, 2, dtype=int)
-
-        angles_rad = np.deg2rad(np.arange(0, 360, 5, dtype=float))
-        cos_theta = np.cos(angles_rad)
-        sin_theta = np.sin(angles_rad)
-
-        # 3) Аккумулятор: (h, w, num_radii)
-        acc = np.zeros((height, width, len(radii)), dtype=np.uint16)
-
-        for (row_index, col_index) in edge_points:
-            for radius_index, radius in enumerate(radii):
-                ys = (row_index - (radius * sin_theta)).round().astype(int)
-                xs = (col_index - (radius * cos_theta)).round().astype(int)
-                valid = (
-                    (ys >= 0)
-                    & (ys < height)
-                    & (xs >= 0)
-                    & (xs < width)
-                )
-                ys = ys[valid]
-                xs = xs[valid]
-                acc[ys, xs, radius_index] += 1
-
-        # 4) Поиск пиков в аккумляторе по каждому радиусу с NMS
-        circles = []  # (row, col, radius, votes)
-        for radius_index, radius in enumerate(radii):
-            layer = acc[:, :, radius_index]
-            if layer.max() == 0:
-                continue
-
-            threshold = max(10, int(0.6 * layer.max()))
-            # NMS 7x7
-            for row_index in range(3, height - 3):
-                for col_index in range(3, width - 3):
-                    votes = layer[row_index, col_index]
-                    if votes < threshold:
-                        continue
-
-                    r0 = row_index - 3
-                    r1 = row_index + 4
-                    c0 = col_index - 3
-                    c1 = col_index + 4
-                    window = layer[r0:r1, c0:c1]
-                    if (
-                        votes == window.max()
-                        and np.count_nonzero(window == votes) == 1
-                    ):
-                        circles.append(
-                            (row_index, col_index, int(radius), int(votes)),
-                        )
-
-        # Отсортируем по голосам и ограничим количество
-        circles.sort(key=lambda tpl: tpl[3], reverse=True)
-        keep = []
-
-        def far_enough(y_center: int, x_center: int, radius: int) -> bool:
-            """Проверяет отдалённость от уже выбранных окружностей.
-
-            Args:
-                y_center (int): Координата Y центра новой окружности.
-                x_center (int): Координата X центра новой окружности.
-                radius (int): Радиус новой окружности.
-
-            Returns:
-                bool: True, если окружность достаточно далеко от выбранных.
-            """
-            for (y2, x2, _r2, _) in keep:
-                if (
-                    (y_center - y2) ** 2
-                    + (x_center - x2) ** 2
-                    < (0.8 * radius) ** 2
-                ):
-                    return False
-
-            return True
-
-        for circle in circles:
-            if far_enough(circle[0], circle[1], circle[2]):
-                keep.append(circle)
-
-            if len(keep) >= 10:
-                break
-
-        # 5) Отрисовка: окружность
-        result = np.zeros((height, width, 3), dtype=image.dtype)
-        for (y_center, x_center, radius, _) in keep:
-            for angle_deg in range(0, 360, 2):
-                angle_rad = np.deg2rad(angle_deg)
-                y_pix = int(round(y_center + radius * np.sin(angle_rad)))
-                x_pix = int(round(x_center + radius * np.cos(angle_rad)))
-                if 0 <= y_pix < height and 0 <= x_pix < width:
-                    result[y_pix, x_pix] = [255, 255, 255]
-
-            if 0 <= y_center < height and 0 <= x_center < width:
-                result[y_center, x_center] = [255, 255, 255]
-
+        # Готовим изображение в градациях серого
+        if len(image.shape) == 3:
+            gray = self._rgb_to_grayscale(image)
+        else:
+            gray = image.astype(np.float32)
+        # Вычисление производных по X и Y конечными разностями
+        ix = np.zeros_like(gray)
+        iy = np.zeros_like(gray)
+        ix[:, 1:-1] = gray[:, 2:] - gray[:, :-2]
+        iy[1:-1, :] = gray[2:, :] - gray[:-2, :]
+        # Сглаживаем компоненты матрицы автокорреляции
+        ix2 = self.simple_blur(ix * ix)
+        iy2 = self.simple_blur(iy * iy)
+        ixy = self.simple_blur(ix * iy)
+        # Отклик Харриса
+        det = ix2 * iy2 - ixy * ixy
+        trace = ix2 + iy2
+        harris_response = det - 0.04 * (trace ** 2)
+        # Порог и выбор координат углов
+        threshold = 0.1 * harris_response.max()
+        corners_y, corners_x = np.where(harris_response > threshold)
+        # Рисуем маркеры в найденных угловых точках
+        result = image.copy()
+        for i in range(len(corners_x)):
+            x, y = corners_x[i], corners_y[i]
+            if 0 <= x < result.shape[1] and 0 <= y < result.shape[0]:
+                cv2.circle(result, (int(x), int(y)), 2, (0, 0, 255), -1)
+        print(f"Найдено углов: {len(corners_x)}")
         return result
+
+    def circle_detection(self, image: np.ndarray):
+        """
+        Выполняет обнаружение окружностей на изображении с помощью преобразования Хафа.
+        """
+        # Уменьшение размера изображения для ускорения
+        scale_factor = 0.3
+        h, w = image.shape[:2]
+        new_h, new_w = int(h * scale_factor), int(w * scale_factor)
+        # Простое уменьшение изображения (nearest neighbor)
+        if len(image.shape) == 3:
+            small_image = np.zeros((new_h, new_w, 3), dtype=image.dtype)
+            for i in range(new_h):
+                for j in range(new_w):
+                    orig_i = min(int(i / scale_factor), h - 1)
+                    orig_j = min(int(j / scale_factor), w - 1)
+                    small_image[i, j] = image[orig_i, orig_j]
+        else:
+            small_image = np.zeros((new_h, new_w), dtype=image.dtype)
+            for i in range(new_h):
+                for j in range(new_w):
+                    orig_i = min(int(i / scale_factor), h - 1)
+                    orig_j = min(int(j / scale_factor), w - 1)
+                    small_image[i, j] = image[orig_i, orig_j]
+        # Обнаружение границ
+        edges = self.edge_detection(small_image)
+        edges_binary = (edges > 100).astype(np.uint8) * 255
+        # Параметры преобразования Хафа
+        height, width = edges_binary.shape
+        min_radius = 20
+        max_radius = min(height, width) // 6
+        radius_step = 2
+        print(f"Диапазон радиусов: {min_radius}-{max_radius} с шагом {radius_step}")
+        # Сэмплирование (разрежение) набора граничных точек для ускорения
+        edge_points = np.argwhere(edges_binary > 0)
+        sampling_rate = 2
+        sampled_edge_points = edge_points[::sampling_rate]
+        print(
+            f"Всего точек границ: {len(edge_points)}, "
+            f"после сэмплирования: {len(sampled_edge_points)}"
+        )
+        # Создаем аккумулятор (оси: y, x, радиус)
+        accumulator = np.zeros(
+            (height, width, (max_radius - min_radius) // radius_step + 1),
+            dtype=np.uint16,
+        )
+        # Голосование: для каждой точки и набора радиусов инкрементируем возможные центры
+        print("Начало оптимизированного голосования...")
+        for i, (y, x) in enumerate(sampled_edge_points):
+            if i % 500 == 0:
+                print(f"Обработано {i}/{len(sampled_edge_points)} точек...")
+            # Перебор углов для аппроксимации окружности
+            angle_step = 6
+            for angle in range(0, 360, angle_step):
+                theta = np.radians(angle)
+                for r_idx, radius in enumerate(
+                    range(min_radius, max_radius + 1, radius_step)
+                ):
+                    a = int(x - radius * np.cos(theta))
+                    b = int(y - radius * np.sin(theta))
+                    if 0 <= a < width and 0 <= b < height:
+                        accumulator[b, a, r_idx] += 1
+        print("Поиск окружностей...")
+        # Порог на аккумуляторе для выделения сильных кандидатов
+        threshold = 0.6 * np.max(accumulator)
+        circles = []
+        for r_idx, radius in enumerate(
+            range(min_radius, max_radius + 1, radius_step)
+        ):
+            acc_layer = accumulator[:, :, r_idx]
+            strong_candidates = np.argwhere(acc_layer > threshold)
+            for y, x in strong_candidates:
+                # Устраняем дубликаты близко расположенных центров/радиусов
+                is_duplicate = False
+                for existing_x, existing_y, existing_r in circles:
+                    distance = np.sqrt((x - existing_x) ** 2 + (y - existing_y) ** 2)
+                    if distance < 38 and abs(radius - existing_r) < 25:
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    circles.append((x, y, radius))
+                    if len(circles) >= 20:
+                        break
+            if len(circles) >= 20:
+                break
+        print(f"Найдено окружностей: {len(circles)}")
+        # Масштабируем координаты обратно к исходному изображению и рисуем окружности
+        result = image.copy()
+        for (x, y, radius) in circles:
+            x_orig = int(x / scale_factor)
+            y_orig = int(y / scale_factor)
+            radius_orig = int(radius / scale_factor)
+            self.draw_circle(result, x_orig, y_orig, radius_orig, (0, 255, 0), 2)
+            cv2.circle(result, (x_orig, y_orig), 3, (0, 0, 255), -1)
+        return result
+
+    def draw_circle(self, image: np.ndarray, center_x: int, center_y: int,
+                    radius: int, color: tuple, thickness: int = 2) -> None:
+        """
+        Рисует окружность на изображении с помощью алгоритма Брезенхэма.
+
+        Args:
+            image (np.ndarray): Изображение для рисования.
+            center_x (int): X-координата центра.
+            center_y (int): Y-координата центра.
+            radius (int): Радиус окружности.
+            color (tuple): Цвет в формате BGR.
+            thickness (int): Толщина линии.
+        """
+        # Инициализация параметров алгоритма Брезенхэма
+        x = 0
+        y = radius
+        d = 3 - 2 * radius
+
+        def draw_points(xc, yc, x, y):
+            # Формируем список симметричных точек окружности
+            points = []
+            points.extend([
+                (xc + x, yc + y), (xc - x, yc + y),
+                (xc + x, yc - y), (xc - x, yc - y),
+                (xc + y, yc + x), (xc - y, yc + x),
+                (xc + y, yc - x), (xc - y, yc - x)
+            ])
+            if thickness > 1:
+                # Утолщаем линию за счёт соседних пикселей
+                for dx in range(-thickness // 2, thickness // 2 + 1):
+                    for dy in range(-thickness // 2, thickness // 2 + 1):
+                        if dx != 0 or dy != 0:
+                            for px, py in points.copy():
+                                points.append((px + dx, py + dy))
+            # Отрисовываем валидные точки на изображении
+            for px, py in points:
+                if 0 <= px < image.shape[1] and 0 <= py < image.shape[0]:
+                    image[py, px] = color
+        # Основной цикл построения окружности
+        while y >= x:
+            draw_points(center_x, center_y, x, y)
+            x += 1
+            if d > 0:
+                y -= 1
+                d = d + 4 * (x - y) + 10
+            else:
+                d = d + 4 * x + 6
+            draw_points(center_x, center_y, x, y)

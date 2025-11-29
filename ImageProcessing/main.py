@@ -67,7 +67,7 @@ def main() -> None:
     # Выбор метода
     start = time.perf_counter()
     if args.method == "edges":
-        result = processor.edge_detection(image)
+        result = processor.edge_detection(image)    
     elif args.method == "corners":
         result = processor.corner_detection(image)
     elif args.method == "circles":

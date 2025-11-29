@@ -11,10 +11,10 @@
 - обнаружение углов (алгоритм Харриса)
 - обнаружение окружностей
 """
-import time
 import cv2
 import interfaces
 import numpy as np
+from lab2.utils import timing_decorator
 
 
 class ImageProcessing(interfaces.IImageProcessing):
@@ -25,6 +25,7 @@ class ImageProcessing(interfaces.IImageProcessing):
     в оттенки серого, гамма-коррекцию, а также обнаружение границ, углов и окружностей.
     """
 
+    @timing_decorator
     def _convolution(self, image: np.ndarray, kernel: np.ndarray):
         """
         Выполняет свёртку изображения с заданным ядром.
@@ -36,7 +37,6 @@ class ImageProcessing(interfaces.IImageProcessing):
         Returns:
             image (result_image)
         """
-        start_time = time.time()
         # Извлекаем размеры изображения и ядра
         image_height, image_width = image.shape[:2]
         kernel_height, kernel_width = kernel.shape
@@ -77,22 +77,15 @@ class ImageProcessing(interfaces.IImageProcessing):
                     output[i, j] = np.sum(region * kernel)
         # Обрезаем значения в допустимый диапазон [0, 255] и приводим к uint8
         output = np.clip(output, 0, 255).astype(np.uint8)
-        end_time = time.time()
-        execution_time = end_time - start_time
-        print(f"Свёртка выполнена за {execution_time:.4f} секунд")
         return output
 
+    @timing_decorator
     def _rgb_to_grayscale(self, image: np.ndarray):
-        start_time = time.time()
         # Линейная комбинация каналов RGB в соответствии с яркостной моделью
         grayscale = np.dot(image[..., :3], [0.299, 0.587, 0.114]).astype(np.float32)
-        end_time = time.time()
-        execution_time = end_time - start_time
-        print(
-            f"Преобразование в grayscale выполнено за {execution_time:.4f} секунд"
-        )
         return grayscale
 
+    @timing_decorator
     def _gamma_correction(self, image: np.ndarray, gamma: float = 1.0):
         """
         Применяет гамма-коррекцию к изображению.
@@ -104,18 +97,15 @@ class ImageProcessing(interfaces.IImageProcessing):
         Returns:
             image (corrected_image)
         """
-        start_time = time.time()
         # Нормализация в диапазон [0,1]
         normalized_image = image.astype(np.float32) / 255.0
         # Применение степени gamma
         corrected_image = np.power(normalized_image, gamma)
         # Обратное масштабирование в [0,255] и приведение типа
         result = (corrected_image * 255).astype(np.uint8)
-        end_time = time.time()
-        execution_time = end_time - start_time
-        print(f"Гамма-коррекция выполнена за {execution_time:.4f} секунд")
         return result
 
+    @timing_decorator
     def sobel_operator(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
         Применяет оператор Собеля для вычисления градиентов.
@@ -139,6 +129,7 @@ class ImageProcessing(interfaces.IImageProcessing):
         gradient_y = self._convolution(image, sobel_y)
         return gradient_x, gradient_y
 
+    @timing_decorator
     def simple_blur(self, img: np.ndarray) -> np.ndarray:
         # Простое усредняющее ядро 3x3
         blur_kernel = np.array(
@@ -152,6 +143,7 @@ class ImageProcessing(interfaces.IImageProcessing):
         result = self._convolution(img, blur_kernel)
         return result
 
+    @timing_decorator
     def edge_detection(self, image: np.ndarray):
         """
         Выполняет обнаружение границ на изображении.
@@ -176,43 +168,71 @@ class ImageProcessing(interfaces.IImageProcessing):
             gradient_magnitude / gradient_magnitude.max() * 255
         ).astype(np.uint8)
         # Пороговая обработка для выделения границ
-        edges = np.where(gradient_magnitude > 50, 255, 0).astype(np.uint8)
+        edge_value = 50
+        edges = np.where(gradient_magnitude > edge_value, 255, 0).astype(np.uint8)
         return edges
 
-    def corner_detection(self, image: np.ndarray):
+    @timing_decorator
+    def corner_detection(self, image: np.ndarray) -> np.ndarray:
         """
-        Выполняет обнаружение углов на изображении.
-        """
-        # Готовим изображение в градациях серого
-        if len(image.shape) == 3:
-            gray = self._rgb_to_grayscale(image)
-        else:
-            gray = image.astype(np.float32)
-        # Вычисление производных по X и Y конечными разностями
-        ix = np.zeros_like(gray)
-        iy = np.zeros_like(gray)
-        ix[:, 1:-1] = gray[:, 2:] - gray[:, :-2]
-        iy[1:-1, :] = gray[2:, :] - gray[:-2, :]
-        # Сглаживаем компоненты матрицы автокорреляции
-        ix2 = self.simple_blur(ix * ix)
-        iy2 = self.simple_blur(iy * iy)
-        ixy = self.simple_blur(ix * iy)
-        # Отклик Харриса
-        det = ix2 * iy2 - ixy * ixy
-        trace = ix2 + iy2
-        harris_response = det - 0.04 * (trace ** 2)
-        # Порог и выбор координат углов
-        threshold = 0.1 * harris_response.max()
-        corners_y, corners_x = np.where(harris_response > threshold)
-        # Рисуем маркеры в найденных угловых точках
-        result = image.copy()
-        for i in range(len(corners_x)):
-            x, y = corners_x[i], corners_y[i]
-            if 0 <= x < result.shape[1] and 0 <= y < result.shape[0]:
-                cv2.circle(result, (int(x), int(y)), 2, (0, 0, 255), -1)
-        print(f"Найдено углов: {len(corners_x)}")
-        return result
+        Выполняет обнаружение углов на изображении по Харрису.
 
+        Этапы: градиенты по X и Y (Собель), бокс-суммирование, отклик
+        R = det(M) - k*(trace(M)**2), немаксимальное подавление и порог.
+
+        Args:
+            image (np.ndarray): Входное изображение (RGB).
+
+        Returns:
+            np.ndarray: Изображение с выделенными углами (белые точки).
+        """
+        # В оттенки серого
+        gray = self._rgb_to_grayscale(image)
+        # Градиенты по X и Y
+        Ix, Iy = self.sobel_operator(gray)
+        Ix = Ix.astype(np.float32)
+        Iy = Iy.astype(np.float32)
+        # Квадраты и произведение градиентов
+        Ixx = Ix * Ix
+        Iyy = Iy * Iy
+        Ixy = Ix * Iy
+        # Усреднение
+        box_kernel = np.ones((3, 3), dtype=np.float32) / 9
+        Sxx = self._convolution(Ixx, box_kernel)
+        Syy = self._convolution(Iyy, box_kernel)
+        Sxy = self._convolution(Ixy, box_kernel)
+        # Расчёт отклика Харриса
+        k = 0.04
+        det_M = Sxx * Syy - Sxy * Sxy
+        trace_M = Sxx + Syy
+        R = det_M - k * (trace_M ** 2)
+        # Нормализация и порог
+        R_norm = (R - R.min()) / (R.max() - R.min())
+        threshold = 0.2
+        corners = np.zeros_like(R_norm, dtype=np.uint8)
+        corners[R_norm > threshold] = 255
+        # Немаксимальное подавление
+        nms_size = 3
+        half = nms_size // 2
+        result = np.zeros_like(corners)
+        for y in range(half, corners.shape[0] - half):
+            for x in range(half, corners.shape[1] - half):
+                local_region = R_norm[y - half:y + half + 1, x - half:x + half + 1]
+                if R_norm[y, x] == local_region.max() and R_norm[y, x] > threshold:
+                    result[y, x] = 255
+        # Визуализация на копии исходного изображения
+        result_image = image.copy()
+        ys, xs = np.where(result > 0)
+        for (x, y) in zip(xs, ys):
+            if len(result_image.shape) == 3:
+                result_image[y, x] = (0, 0, 255)
+            else:
+                result_image[y, x] = 255
+
+        return result_image
+        
+
+    @timing_decorator
     def circle_detection(self, image: np.ndarray):
         """
         Выполняет обнаружение окружностей на изображении с помощью преобразования Хафа.
@@ -221,7 +241,7 @@ class ImageProcessing(interfaces.IImageProcessing):
         scale_factor = 0.3
         h, w = image.shape[:2]
         new_h, new_w = int(h * scale_factor), int(w * scale_factor)
-        # Простое уменьшение изображения (nearest neighbor)
+        # Простое уменьшение изображения
         if len(image.shape) == 3:
             small_image = np.zeros((new_h, new_w, 3), dtype=image.dtype)
             for i in range(new_h):
@@ -245,7 +265,7 @@ class ImageProcessing(interfaces.IImageProcessing):
         max_radius = min(height, width) // 6
         radius_step = 2
         print(f"Диапазон радиусов: {min_radius}-{max_radius} с шагом {radius_step}")
-        # Сэмплирование (разрежение) набора граничных точек для ускорения
+        # Сэмплирование набора граничных точек для ускорения
         edge_points = np.argwhere(edges_binary > 0)
         sampling_rate = 2
         sampled_edge_points = edge_points[::sampling_rate]
@@ -253,7 +273,7 @@ class ImageProcessing(interfaces.IImageProcessing):
             f"Всего точек границ: {len(edge_points)}, "
             f"после сэмплирования: {len(sampled_edge_points)}"
         )
-        # Создаем аккумулятор (оси: y, x, радиус)
+        # Создаем аккумулятор
         accumulator = np.zeros(
             (height, width, (max_radius - min_radius) // radius_step + 1),
             dtype=np.uint16,
@@ -308,6 +328,7 @@ class ImageProcessing(interfaces.IImageProcessing):
             cv2.circle(result, (x_orig, y_orig), 3, (0, 0, 255), -1)
         return result
 
+    @timing_decorator
     def draw_circle(self, image: np.ndarray, center_x: int, center_y: int,
                     radius: int, color: tuple, thickness: int = 2) -> None:
         """

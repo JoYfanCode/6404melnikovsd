@@ -59,6 +59,12 @@ python main_lab2.py --output-dir my_images --limit 2
 python main_lab2.py --limit 3 --api-type cat --output-dir lab2_images --api-key YOUR_KEY
 ```
 
+### Операции
+
+```bash
+python add_two_images.py lab2_images/1_Bengal_original.png lab2_images/1_Bengal_custom.png lab2_images/my_result.png
+```
+
 ## Параметры командной строки
 
 - `--limit` - Количество изображений для обработки (по умолчанию: 1)

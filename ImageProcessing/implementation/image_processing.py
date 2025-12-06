@@ -76,7 +76,7 @@ class ImageProcessing(interfaces.IImageProcessing):
                     ]
                     output[i, j] = np.sum(region * kernel)
         # Обрезаем значения в допустимый диапазон [0, 255] и приводим к uint8
-        output = np.clip(output, 0, 255).astype(np.uint8)
+        
         return output
 
     @timing_decorator

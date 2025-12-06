@@ -218,6 +218,77 @@ class CatImageProcessor:
         return filename
 
     @timing_decorator
+    def add_images(
+        self,
+        cat_images: List[CatImage],
+        indices: Optional[List[int]] = None
+    ) -> None:
+        """
+        Складывает два или более изображений и сохраняет результат.
+
+        Args:
+            cat_images: Список изображений для сложения.
+            indices: Индексы изображений для сложения (по умолчанию первые два).
+        """
+        if len(cat_images) < 2:
+            print("Для сложения нужно минимум 2 изображения")
+            return
+
+        if indices is None:
+            indices = [0, 1]
+
+        if len(indices) < 2:
+            print("Нужно указать минимум 2 индекса для сложения")
+            return
+
+        if max(indices) >= len(cat_images):
+            print(f"Ошибка: индекс {max(indices)} выходит за границы списка (всего {len(cat_images)} изображений)")
+            return
+
+        try:
+            # Берём первое изображение
+            result = cat_images[indices[0]]
+
+            # Складываем с остальными
+            for idx in indices[1:]:
+                print(f"Сложение изображения {indices[0]} ({result.breed}) с изображением {idx} ({cat_images[idx].breed})...")
+                
+                # Проверяем размеры
+                if result.image.shape != cat_images[idx].image.shape:
+                    print(f"Предупреждение: изображения имеют разные размеры!")
+                    print(f"  Изображение {indices[0]}: {result.image.shape}")
+                    print(f"  Изображение {idx}: {cat_images[idx].image.shape}")
+                    print("Пропускаем это изображение...")
+                    continue
+
+                result = result + cat_images[idx]
+
+            # Сохраняем результат сложения
+            safe_name = self._sanitize_filename(result.breed)
+            result_path = os.path.join(
+                self._output_dir,
+                f"summed_{safe_name}.png"
+            )
+            cv2.imwrite(result_path, result.image)
+            print(f"Результат сложения сохранён: {result_path}")
+            print(f"Результирующее изображение: {result}")
+
+            # Применяем обнаружение границ к результату
+            print("\nПрименение обнаружения границ к результату сложения...")
+            edges = result.detect_edges_custom()
+            edges_path = os.path.join(
+                self._output_dir,
+                f"summed_{safe_name}_edges.png"
+            )
+            cv2.imwrite(edges_path, edges)
+            print(f"Результат с границами сохранён: {edges_path}")
+
+        except Exception as e:
+            print(f"Ошибка при сложении изображений: {e}")
+            import traceback
+            traceback.print_exc()
+
+    @timing_decorator
     def run(self, limit: int = 1) -> None:
         """
         Основной метод для запуска обработки.
@@ -236,6 +307,13 @@ class CatImageProcessor:
 
         # Обрабатываем и сохраняем
         self.process_images(cat_images)
+
+        # Если загружено 2+ изображения, демонстрируем сложение
+        if len(cat_images) >= 2:
+            print("\n" + "=" * 50)
+            print("Демонстрация сложения изображений")
+            print("=" * 50)
+            self.add_images(cat_images)
 
         print(f"\n=== Обработка завершена ===")
         print(f"Результаты сохранены в: {self._output_dir}")

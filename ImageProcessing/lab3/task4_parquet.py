@@ -87,7 +87,7 @@ def calculate_correlation_parquet(
     parquet_filepath: str
 ) -> Tuple[float, pd.DataFrame]:
     """
-    Вычисляет корреляцию между Review.Score и Sales из Parquet файла.
+    Вычисляет корреляцию между Metrics.Review Score и Metrics.Sales из Parquet файла.
 
     Читает только необходимые столбцы для оптимизации.
 
@@ -101,11 +101,17 @@ def calculate_correlation_parquet(
     parquet_file = pq.ParquetFile(parquet_filepath)
 
     # Читаем только нужные столбцы
-    columns = ['Review.Score', 'Sales']
+    columns = ['Metrics.Review Score', 'Metrics.Sales']
     df = parquet_file.read(columns=columns).to_pandas()
 
+    # Переименовываем для удобства
+    df = df.rename(columns={
+        'Metrics.Review Score': 'Review.Score',
+        'Metrics.Sales': 'Sales'
+    })
+
     # Очистка данных
-    df = df.dropna(subset=columns)
+    df = df.dropna(subset=['Review.Score', 'Sales'])
     df = df[
         (df['Review.Score'] >= 0) &
         (df['Review.Score'] <= 100) &

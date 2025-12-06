@@ -36,7 +36,7 @@ def extract_sales_data(
     """
     Генератор для извлечения данных о продажах.
 
-    Извлекает необходимые столбцы: Release.Year, Sales.
+    Извлекает необходимые столбцы: Release.Year, Metrics.Sales.
 
     Args:
         chunks: Итератор DataFrame из read_csv_chunks.
@@ -45,11 +45,13 @@ def extract_sales_data(
         DataFrame с извлечёнными данными о продажах.
     """
     for chunk in chunks:
-        required_columns = ['Release.Year', 'Sales']
+        required_columns = ['Release.Year', 'Metrics.Sales']
         if all(col in chunk.columns for col in required_columns):
             extracted = chunk[required_columns].copy()
+            # Переименовываем для удобства
+            extracted = extracted.rename(columns={'Metrics.Sales': 'Sales'})
             # Удаляем строки с пропусками
-            extracted = extracted.dropna(subset=required_columns)
+            extracted = extracted.dropna(subset=['Release.Year', 'Sales'])
             # Фильтруем валидные годы и продажи
             extracted = extracted[
                 (extracted['Release.Year'] > 0) &
@@ -65,7 +67,7 @@ def extract_review_data(
     """
     Генератор для извлечения данных об оценках.
 
-    Извлекает столбцы: Publisher, Review.Score.
+    Извлекает столбцы: Metadata.Publishers, Metrics.Review Score.
 
     Args:
         chunks: Итератор DataFrame из read_csv_chunks.
@@ -74,10 +76,15 @@ def extract_review_data(
         DataFrame с извлечёнными данными об оценках.
     """
     for chunk in chunks:
-        required_columns = ['Publisher', 'Review.Score']
+        required_columns = ['Metadata.Publishers', 'Metrics.Review Score']
         if all(col in chunk.columns for col in required_columns):
             extracted = chunk[required_columns].copy()
-            extracted = extracted.dropna(subset=required_columns)
+            # Переименовываем для удобства
+            extracted = extracted.rename(columns={
+                'Metadata.Publishers': 'Publisher',
+                'Metrics.Review Score': 'Review.Score'
+            })
+            extracted = extracted.dropna(subset=['Publisher', 'Review.Score'])
             # Фильтруем валидные оценки (обычно 0-100)
             extracted = extracted[
                 (extracted['Review.Score'] >= 0) &
@@ -93,7 +100,7 @@ def extract_rating_data(
     """
     Генератор для извлечения данных о рейтингах.
 
-    Извлекает столбцы: Release.Year, Rating.
+    Извлекает столбцы: Release.Year, Release.Rating.
 
     Args:
         chunks: Итератор DataFrame из read_csv_chunks.
@@ -102,10 +109,12 @@ def extract_rating_data(
         DataFrame с извлечёнными данными о рейтингах.
     """
     for chunk in chunks:
-        required_columns = ['Release.Year', 'Rating']
+        required_columns = ['Release.Year', 'Release.Rating']
         if all(col in chunk.columns for col in required_columns):
             extracted = chunk[required_columns].copy()
-            extracted = extracted.dropna(subset=required_columns)
+            # Переименовываем для удобства
+            extracted = extracted.rename(columns={'Release.Rating': 'Rating'})
+            extracted = extracted.dropna(subset=['Release.Year', 'Rating'])
             # Фильтруем только нужные рейтинги: E, T, M
             extracted = extracted[extracted['Rating'].isin(['E', 'T', 'M'])]
             extracted = extracted[extracted['Release.Year'] > 0]
@@ -119,7 +128,7 @@ def extract_correlation_data(
     """
     Генератор для извлечения данных для корреляции.
 
-    Извлекает столбцы: Review.Score, Sales.
+    Извлекает столбцы: Metrics.Review Score, Metrics.Sales.
 
     Args:
         chunks: Итератор DataFrame из read_csv_chunks.
@@ -128,10 +137,15 @@ def extract_correlation_data(
         DataFrame с извлечёнными данными для корреляции.
     """
     for chunk in chunks:
-        required_columns = ['Review.Score', 'Sales']
+        required_columns = ['Metrics.Review Score', 'Metrics.Sales']
         if all(col in chunk.columns for col in required_columns):
             extracted = chunk[required_columns].copy()
-            extracted = extracted.dropna(subset=required_columns)
+            # Переименовываем для удобства
+            extracted = extracted.rename(columns={
+                'Metrics.Review Score': 'Review.Score',
+                'Metrics.Sales': 'Sales'
+            })
+            extracted = extracted.dropna(subset=['Review.Score', 'Sales'])
             extracted = extracted[
                 (extracted['Review.Score'] >= 0) &
                 (extracted['Review.Score'] <= 100) &
